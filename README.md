@@ -1,58 +1,73 @@
 # AnimalDetection
-Detection and tracking of animals (chickens) in drone (UAV) footage, with a focus on recovering the **real-world (lat/lon) coordinates** of each detection rather than just its pixel position.
 
-The project runs entirely on Kaggle notebooks and is organized into three stages, one per subfolder under `notebooks/`: **labeling → tracking → geolocation**.
+Detection and tracking of animals (chickens) in drone (UAV) footage, with a focus on recovering the real-world (lat/lon) coordinates of each detection rather than just its pixel position.
 
-## Pipeline
+The project runs entirely on Kaggle notebooks and is organized into three main stages under `notebooks/`: **labeling**, **tracking**, and **geolocation**.
 
-### 1. `notebooks/labeling/` — building the detector
+### Pipeline
 
-- **`chicken_label_project.ipynb` / `chicken_label_project_v2.ipynb`** — trains a YOLOv8 (Ultralytics) object detector on manually labeled drone frames, with augmentations tuned for small objects (mosaic, scale, copy-paste, flips, HSV jitter). `v2` adds a fine-tuning stage on an expanded dataset, boosts frames where extra boxes were added for dense clusters, and compares model versions on held-out frames before packaging the final weights.
-- **`chicken_label_auto_project.ipynb`** — uses the trained model with [SAHI](https://github.com/obss/sahi) (slicing-aided inference) to auto-label a new batch of frames, exporting both YOLO-format `.txt` labels and a CVAT XML file, so new frames can be reviewed/corrected instead of labeled from scratch.
+#### 1. `notebooks: labeling`
 
-### 2. `notebooks/tracking/` — detecting and tracking across the full video
+* **`chicken_label_project.ipynb` / `chicken_label_project_v2.ipynb`**  
+  Trains a YOLOv8 (Ultralytics) object detector on manually labeled drone frames, with augmentations tuned for small objects (mosaic, scale, copy-paste, flips, HSV jitter). The `v2` notebook adds fine-tuning on an expanded dataset, boosts frames where extra boxes were added for dense clusters, and compares model versions on held-out frames before saving final weights.
 
-- **`chicken_track_drone_v1.ipynb`** — runs SAHI + YOLOv8 detection over a dense set of ~25k frames (with checkpointing to resume long runs), then feeds detections into [ByteTrack](https://github.com/ifzhang/ByteTrack) (via `supervision`) to produce consistent per-animal tracks. Includes diagnostics (track length distribution, frame-to-frame displacement via the Hungarian algorithm), exports tracks as a CVAT XML (`tracks_dense.xml`), and renders an annotated preview video.
+* **`chicken_label_auto_project.ipynb`**  
+  Uses the trained model with SAHI (slicing-aided inference) to auto-label a new batch of frames, exporting both YOLO-format `.txt` labels and a CVAT XML file so new frames can be reviewed and corrected instead of labeled from scratch.
 
-### 3. `notebooks/geolocation/` — projecting detections to GPS coordinates
+#### 2. `notebooks: tracking`
 
-This folder documents the evolution of the geo-referencing approach, from an early ground-control-point (GCP) method to the final shelter-height calibration used in production:
+* **`chicken_track_drone_v1.ipynb`**  
+  Runs SAHI + YOLOv8 detection over a dense set of ~25k frames (with checkpointing to resume long runs), then feeds detections into ByteTrack (via `supervision`) to produce consistent per-animal tracks. Includes diagnostics (track length distribution, frame-to-frame displacement via the Hungarian algorithm), exports tracks as a CVAT XML (`tracks_dense.xml`), and renders an annotated preview video.
 
-- **`geolocation_pipeline_ipynb.ipynb`** — first attempts: identifying the right telemetry file via MSE matching against 4 manually marked ground control points, then a full camera-tilt model and multi-frame bundle adjustment.
-- **`geolocation_pipeline_ipynb_v2.ipynb`** — refines the GCP-based approach (corners named by azimuth from the shelter).
-- **`geolocation_pipeline_ipynb_v3.ipynb`** — experiments with optical-flow-based frame-to-frame homography ("islands") to refine positions between telemetry samples.
-- **`geolocation_pipeline_ipynb_v4.ipynb`** — combines a fixed focal length (derived from an assumed horizontal FOV), optical-flow drift detection, and piecewise-linear pitch calibration at anomaly-dense "knot" frames.
-- **`chicken-positions-v7.ipynb`** — the final pipeline. Instead of GCPs, it calibrates using the **known height of the shelters** visible in the footage (1.6 m): a ray from a shelter's base, extended 1.6 m vertically, should reproject onto the shelter's marked top pixel. From a set of manually marked (base, top) pixel pairs across many frames, it fits:
-  - one shared **focal length** for the whole video (fixed lens), and
-  - a **per-frame gimbal pitch** (via least-squares on pixel-space reprojection error).
+#### 3. `notebooks: geolocation`
 
-  It then:
-  - interpolates pitch between calibrated frames and drops detections where pitch/altitude make the geometry unreliable,
-  - includes an optional video/telemetry time-offset search to verify sync,
-  - projects every detection from `tracks_dense.xml` to lat/lon with sanity filters (height, pitch, max plausible ground distance),
-  - smooths each track with a median filter and splits it wherever the implied speed exceeds what an animal can physically achieve (catching occlusion jumps, ID switches, or calibration noise),
-  - produces a static map of high-confidence trajectories, plus interactive HTML/JS widgets (a timeline slider, and a combined map + video-thumbnail viewer) to visually sanity-check the calibration against the original footage.
+This folder documents the evolution of the georeferencing approach, moving from an early ground control point (GCP) method to the final shelter-height calibration used in production:
 
-## Requirements
+* **`geolocation_pipeline_ipynb.ipynb`**  
+  Initial attempts: identifying the correct telemetry file via MSE matching against 4 manually marked ground control points, followed by a full camera tilt model and multi-frame bundle adjustment.
 
-- Python 3
-- `numpy`, `pandas`, `matplotlib`, `scipy`, `opencv-python`
-- `ultralytics` (YOLOv8), `sahi`, `supervision` (ByteTrack)
-- A Jupyter/Kaggle environment with GPU
+* **`geolocation_pipeline_ipynb_v2.ipynb`**  
+  Refines the GCP-based approach with corners named by azimuth relative to the shelter.
 
-## Inputs
+* **`geolocation_pipeline_ipynb_v3.ipynb`**  
+  Experiments with optical-flow-based frame-to-frame homography to refine positions between telemetry samples.
 
-- Manually labeled drone frames (for training) and raw drone frame sequences (for inference)
-- Drone flight telemetry (CSV: time, lat, lng, height AGL, yaw)
-- A small set of manually marked shelter base/top pixel pairs, used only for camera calibration
+* **`geolocation_pipeline_ipynb_v4.ipynb`**  
+  Combines a fixed focal length, optical flow drift detection, and piecewise-linear pitch calibration at anomaly-dense knot frames.
 
-## Output
+* **`chicken-positions-v7.ipynb` (Final Pipeline)**  
+  Instead of GCPs, this approach calibrates using the known height of the shelters visible in the footage (1.6 m). A ray projected from a shelter's base, extended 1.6 m vertically, should reproject onto the shelter's marked top pixel. From a set of manually marked (base, top) pixel pairs across multiple frames, it fits:
+  1. A single shared focal length for the entire video (fixed lens).
+  2. A per-frame gimbal pitch angle (via least-squares optimization on pixel-space reprojection error).
 
-- A trained YOLOv8 chicken detector
-- `tracks_dense.xml` — per-frame bounding boxes with track IDs (CVAT format)
-- A CSV of geotagged detections per track (`track_id`, `frame`, `time_s`, `east`, `north`, `lat`, `lon`, `segment_id` after speed-based splitting), plus static and interactive visualizations of the resulting trajectories
+  **Final processing steps:**
+  * Interpolates pitch between calibrated frames and drops detections where pitch or altitude make the geometry unreliable.
+  * Runs an optional video/telemetry time offset search to verify synchronization.
+  * Projects every detection from `tracks_dense.xml` to lat/lon using sanity filters (height, pitch, maximum plausible ground distance).
+  * Smooths each track with a median filter and splits tracks whenever implied speed exceeds realistic animal movement (catching occlusion jumps, ID switches, or calibration noise).
+  * Generates a static map of high-confidence trajectories alongside interactive HTML/JS widgets (a timeline slider and a combined map with video thumbnail viewer) to visually verify calibration against original footage.
 
-## Notes
+### Requirements
 
-- Calibration uses pixel-space residuals (reprojected vs. marked shelter top) rather than world-space error, which avoids bias from annotation noise.
-- Frames near takeoff/landing or with very shallow camera pitch are excluded, since the projection geometry becomes degenerate at low pitch/altitude.
+* Python 3
+* `numpy`, `pandas`, `matplotlib`, `scipy`, `opencv-python`
+* `ultralytics` (YOLOv8), `sahi`, `supervision` (ByteTrack)
+* A Jupyter or Kaggle environment with GPU support
+
+### Inputs
+
+* Manually labeled drone frames (for training) and raw frame sequences (for inference)
+* Drone flight telemetry (CSV format: timestamp, lat, lng, height AGL, yaw)
+* A small set of manually marked shelter base/top pixel pairs for camera calibration
+
+### Outputs
+
+* Trained YOLOv8 chicken detection model weights
+* `tracks_dense.xml`:  per-frame bounding boxes with track IDs (CVAT format)
+* CSV of geotagged detections per track (`track_id`, `frame`, `time_s`, `east`, `north`, `lat`, `lon`, `segment_id`)
+* Static and interactive trajectory visualization plots
+
+### Notes
+
+* Calibration relies on pixel-space residuals (reprojected vs. marked shelter top) rather than world-space error to avoid bias from annotation noise.
+* Frames near takeoff or landing and those captured at very shallow camera pitch angles are excluded, as projection geometry becomes degenerate under low pitch/altitude conditions.
