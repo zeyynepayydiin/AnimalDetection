@@ -1,6 +1,6 @@
 # AnimalDetection
 
-Detection and tracking of animals (chickens) in drone (UAV) footage, with a focus on recovering the real-world (lat/lon) coordinates of each detection rather than just its pixel position.
+Detection and tracking of animals (chickens) in drone (UAV) footage, with a focus on recovering the real-world (lat/lon) coordinates of each detection.
 
 The project runs entirely on Kaggle notebooks and is organized into three main stages under `notebooks/`: **labeling**, **tracking**, and **geolocation**.
 
